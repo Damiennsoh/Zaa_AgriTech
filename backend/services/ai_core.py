@@ -139,8 +139,9 @@ async def call_groq_api(prompt: str) -> str:
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "google/gemini-1.5-flash",
+            "model": "google/gemini-2.5-flash",
             "messages": [
+
                 {"role": "system", "content": ZAA_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
             ],

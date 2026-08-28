@@ -25,11 +25,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // MULTI-MODEL ROUTING BASED ON TASK TYPE
+    // MULTI-MODEL ROUTING USING ACTIVE (NON-DEPRECATED) GEMINI & OPENAI MODELS
     switch (task) {
       case 'intent': {
-        // Fast LLM Reasoning for intent & entity extraction
-        const model = gatewayOpenAI('google/gemini-1.5-flash');
+        // Fast, active model for intent & entity extraction (Gemini 2.5 Flash / 3.6 Flash)
+        const model = gatewayOpenAI('google/gemini-2.5-flash');
         const { object } = await generateObject({
           model,
           schema: z.object({
@@ -51,8 +51,8 @@ export async function POST(req: Request) {
       }
 
       case 'vision': {
-        // Multimodal AI Vision model for agricultural crop photo grading
-        const visionModel = gatewayOpenAI('google/gemini-1.5-flash');
+        // Multimodal Vision Model (Gemini 2.5 Flash) for crop photo quality grading
+        const visionModel = gatewayOpenAI('google/gemini-2.5-flash');
         const content: any[] = [
           {
             type: 'text',
@@ -76,8 +76,8 @@ export async function POST(req: Request) {
       }
 
       case 'negotiation': {
-        // High-reasoning model for contract/bidding negotiations
-        const reasoningModel = gatewayOpenAI('openai/gpt-4o-mini');
+        // High-reasoning model (Gemini 2.5 Pro or GPT-4o-mini) for bidding & escrow calculations
+        const reasoningModel = gatewayOpenAI('google/gemini-2.5-pro');
         const { text } = await generateText({
           model: reasoningModel,
           messages: messages || [{ role: 'user', content: prompt }],
@@ -87,8 +87,8 @@ export async function POST(req: Request) {
       }
 
       default: {
-        // Default general AI response
-        const defaultModel = gatewayOpenAI('google/gemini-1.5-flash');
+        // Default general active model (Gemini 2.5 Flash)
+        const defaultModel = gatewayOpenAI('google/gemini-2.5-flash');
         const { text } = await generateText({
           model: defaultModel,
           prompt: prompt || 'Hello from ZAA Multi-Model Assistant',
