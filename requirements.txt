@@ -6,9 +6,8 @@ fastapi==0.109.0
 uvicorn[standard]==0.27.0
 
 # Database
-asyncpg==0.29.0
-sqlalchemy==2.0.25
-alembic==1.13.1
+# Supabase Data API client; backend uses the server-only secret key
+supabase==2.15.8
 
 # HTTP Client
 aiohttp==3.9.1
