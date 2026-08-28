@@ -3,7 +3,7 @@
 ## Prerequisites
 - Python 3.10+
 - Node.js 18+
-- PostgreSQL 14+ (or Supabase account)
+- Supabase project with the Data API enabled
 - Meta Developer Account (for WhatsApp)
 - MTN MoMo Developer Account (for payments)
 
@@ -22,7 +22,9 @@ pip install -r ../requirements.txt
 ### Step 2: Set Environment Variables
 Copy `.env.example` to `.env` and fill in:
 ```
-DATABASE_URL=postgresql://user:pass@localhost:5432/zaa
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SECRET_KEY=your_supabase_secret_key
+CORS_ORIGINS=https://your-frontend.example.com
 WHATSAPP_TOKEN=your_whatsapp_cloud_api_token
 WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
 WHATSAPP_VERIFY_TOKEN=zaa_verify_token_2024
@@ -33,10 +35,8 @@ MOMO_API_KEY=your_momo_key
 MOMO_SUBSCRIPTION_KEY=your_momo_subscription_key
 ```
 
-### Step 3: Initialize Database
-```bash
-psql -d zaa -f database/schema.sql
-```
+### Step 3: Initialize Supabase
+Apply `database/schema.sql` to the connected Supabase project using the Supabase SQL migration workflow. Confirm the tables are exposed through the Data API and that RLS is enabled before sending production traffic.
 
 ### Step 4: Run Locally
 ```bash
@@ -176,7 +176,7 @@ zaa_complete/
 | Problem | Solution |
 |---------|----------|
 | WhatsApp webhook not receiving | Check verify token matches. Ensure HTTPS URL. |
-| Database connection failed | Verify DATABASE_URL. Check Supabase IP allowlist. |
+| Supabase Data API failed | Verify SUPABASE_URL and the server-only SUPABASE_SECRET_KEY. Confirm tables are exposed through the Data API and RLS policies match the caller. |
 | AI responses slow | Groq free tier = 20 req/min. Upgrade or cache responses. |
 | MoMo payments failing | Use sandbox for testing. Verify subscription key. |
 | CORS errors on dashboard | Check CORS middleware in main.py allows your Vercel domain. |
@@ -189,12 +189,12 @@ zaa_complete/
 ### Development
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:3000`
-- Database: `postgresql://localhost:5432/zaa`
+- Database: Supabase Data API
 
 ### Production
 - Backend: `https://your-app.onrender.com`
 - Frontend: `https://your-app.vercel.app`
-- Database: Supabase connection string
+- Database: Supabase Data API via `SUPABASE_URL` and `SUPABASE_SECRET_KEY`
 
 ---
 

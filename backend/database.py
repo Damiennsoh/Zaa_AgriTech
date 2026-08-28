@@ -1,158 +1,104 @@
-"""
-ZAA Database Service
-PostgreSQL / Supabase integration
-"""
-
-import os
-import asyncpg
+"""Supabase PostgREST adapter for trusted backend operations."""
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+import os
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
+import httpx
 
 logger = logging.getLogger(__name__)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/zaa")
 
-_pool: Optional[asyncpg.Pool] = None
-_db_failed: bool = False
+def _headers(prefer: str = "return=representation") -> Dict[str, str]:
+    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": prefer}
 
-async def get_pool() -> Optional[asyncpg.Pool]:
-    """Get or create database connection pool"""
-    global _pool, _db_failed
-    if _pool is None and not _db_failed:
-        try:
-            _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5, timeout=2.0)
-        except Exception as e:
-            logger.warning(f"⚠️ Could not create DB pool: {e}")
-            _db_failed = True
-            _pool = None
-    return _pool
+async def request(method: str, table: str, *, params: Optional[Dict[str, str]] = None, payload: Any = None, prefer: str = "return=representation") -> Any:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL and SUPABASE_SECRET_KEY are required")
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.request(method, f"{SUPABASE_URL}/rest/v1/{table}", headers=_headers(prefer), params=params, json=payload)
+        response.raise_for_status()
+        return response.json() if response.content else None
 
-async def init_db():
-    """Initialize database connection"""
+async def init_db() -> None:
     try:
-        pool = await get_pool()
-        if pool:
-            async with pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-            logger.info("✅ Database connected")
-        else:
-            logger.info("⚠️ Running in development mode without database")
-    except Exception as e:
-        logger.warning(f"⚠️ Database connection failed: {str(e)}")
-        logger.info("⚠️ Running in development mode without database")
+        await request("GET", "commodities", params={"select": "id", "limit": "1"})
+        logger.info("Supabase Data API connected")
+    except Exception as exc:
+        logger.warning("Supabase health check failed: %s", exc)
 
 async def get_or_create_user(phone: str) -> Dict[str, Any]:
-    """Get existing user or create new one"""
-    try:
-        pool = await get_pool()
-        if pool:
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT * FROM users WHERE phone_number = $1",
-                    phone
-                )
-                if row:
-                    return dict(row)
-                new_user = await conn.fetchrow(
-                    """
-                    INSERT INTO users (phone_number, user_type, verification_status)
-                    VALUES ($1, 'farmer', 'pending')
-                    RETURNING *
-                    """,
-                    phone
-                )
-                logger.info(f"New user registered: {phone}")
-                return dict(new_user)
-    except Exception as e:
-        logger.warning(f"DB user query failed ({e}), using mock user")
-    
-    return {
-        "id": f"dev-user-{phone[-4:] if len(phone)>=4 else '0000'}",
-        "phone_number": phone,
-        "user_type": "farmer",
-        "verification_status": "verified",
-        "preferred_language": "dag"
-    }
-
+    rows = await request("GET", "users", params={"select": "*", "phone_number": f"eq.{quote(phone, safe='')}" , "limit": "1"})
+    if rows:
+        return rows[0]
+    rows = await request("POST", "users", payload={"phone_number": phone, "user_type": "farmer", "verification_status": "pending"})
+    return rows[0]
 
 async def get_user_by_phone(phone: str) -> Optional[Dict[str, Any]]:
-    """Get user by phone number"""
-    try:
-        pool = await get_pool()
-        if pool:
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT * FROM users WHERE phone_number = $1",
-                    phone
-                )
-                return dict(row) if row else None
-    except Exception as e:
-        logger.warning(f"get_user_by_phone DB query failed: {e}")
-    return None
+    rows = await request("GET", "users", params={"select": "*", "phone_number": f"eq.{quote(phone, safe='')}", "limit": "1"})
+    return rows[0] if rows else None
 
-async def save_conversation(
-    user_id: str,
-    wa_message_id: Optional[str],
-    direction: str,
-    msg_type: str,
-    content: Dict[str, Any],
-    language: str,
-    ai_intent: Optional[str] = None
-):
-    """Save conversation to database"""
-    try:
-        pool = await get_pool()
-        if pool:
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO conversations 
-                    (user_id, wa_message_id, direction, message_type, content_text, 
-                     detected_language, ai_intent)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    """,
-                    user_id,
-                    wa_message_id,
-                    direction,
-                    msg_type,
-                    content.get("text", ""),
-                    language,
-                    ai_intent
-                )
-    except Exception as e:
-        logger.warning(f"save_conversation DB failed: {e}")
-
+async def save_conversation(user_id: str, wa_message_id: Optional[str], direction: str, msg_type: str, content: Dict[str, Any], language: str, ai_intent: Optional[str] = None):
+    return await request("POST", "conversations", payload={"user_id": user_id, "wa_message_id": wa_message_id, "direction": direction, "message_type": msg_type, "content_text": content.get("text", ""), "detected_language": language, "ai_intent": ai_intent})
 
 async def get_active_transactions(user_id: str) -> List[Dict[str, Any]]:
-    """Get active transactions for a user"""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT t.*, c.name_en as commodity_name
-            FROM transactions t
-            JOIN commodities c ON t.commodity_id = c.id
-            WHERE (t.seller_id = $1 OR t.buyer_id = $1)
-            AND t.status NOT IN ('completed', 'cancelled', 'refunded')
-            ORDER BY t.created_at DESC
-            """,
-            user_id
-        )
-        return [dict(row) for row in rows]
+    return await request("GET", "transactions", params={"select": "*,commodities(name_en)", "or": f"seller_id.eq.{user_id},buyer_id.eq.{user_id}", "status": "not.in.(completed,cancelled,refunded)", "order": "created_at.desc"}) or []
 
 async def get_bids_for_listing(listing_id: str) -> List[Dict[str, Any]]:
-    """Get all bids for a listing"""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT b.*, u.display_name as buyer_name
-            FROM bids b
-            JOIN users u ON b.buyer_id = u.id
-            WHERE b.listing_id = $1
-            ORDER BY b.created_at DESC
-            """,
-            listing_id
-        )
-        return [dict(row) for row in rows]
+    return await request("GET", "bids", params={"select": "*,users!buyer_id(display_name)", "listing_id": f"eq.{listing_id}", "order": "created_at.desc"}) or []
+
+# Compatibility exports for modules being migrated incrementally.
+def get_pool():
+    raise RuntimeError("PostgreSQL pool removed; use database.request")
+
+async def supabase_request(method: str, table: str, **kwargs):
+    return await request(method, table, **kwargs)
+
+async def close_pool():
+    return None
+
+async def get_listing_by_id(listing_id: str):
+    rows = await request("GET", "listings", params={"select": "*", "id": f"eq.{listing_id}", "limit": "1"})
+    return rows[0] if rows else None
+
+async def update_listing_status(listing_id: str, status: str) -> bool:
+    rows = await request("PATCH", "listings", params={"id": f"eq.{listing_id}"}, payload={"status": status})
+    return bool(rows)
+
+async def insert(table: str, payload: Dict[str, Any]):
+    rows = await request("POST", table, payload=payload)
+    return rows[0] if rows else None
+
+async def select(table: str, params: Dict[str, str]):
+    return await request("GET", table, params=params) or []
+
+async def update(table: str, params: Dict[str, str], payload: Dict[str, Any]):
+    return await request("PATCH", table, params=params, payload=payload) or []
+
+async def delete(table: str, params: Dict[str, str]):
+    return await request("DELETE", table, params=params, prefer="return=minimal")
+
+
+def is_configured() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+
+def get_supabase_config() -> Dict[str, str]:
+    return {"url": SUPABASE_URL, "configured": str(is_configured())}
+
+
+def get_pool_sync_error() -> str:
+    return "Use Supabase PostgREST request helpers"
+
+
+def db_available() -> bool:
+    return is_configured()
+
+
+def rest_url(table: str) -> str:
+    return f"{SUPABASE_URL}/rest/v1/{table}"
+
+
+def rest_headers() -> Dict[str, str]:
+    return _headers()

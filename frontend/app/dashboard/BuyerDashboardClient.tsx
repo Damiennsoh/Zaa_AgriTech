@@ -1,12 +1,45 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useState, useEffect } from "react";
 
 // ZAA Buyer Dashboard
 // A simple, mobile-first dashboard for buyers to browse listings and place bids
 
+type DashboardListing = {
+  id: string;
+  commodity: string;
+  quantity: number;
+  unit: string;
+  grade: string;
+  aiConfidence: number;
+  location: string;
+  seller: string;
+  sellerRating: number;
+  askingPrice: number;
+  marketPrice: number;
+  photoUrl: string;
+  listedAt: string;
+  attributes: Record<string, string>;
+};
+
+type ListingApi = {
+  id: string;
+  commodity_name?: string;
+  quantity: number;
+  unit: string;
+  quality_grade?: string;
+  ai_confidence?: number;
+  location_district?: string;
+  location_village?: string;
+  seller_name?: string;
+  seller_rating?: number;
+  asking_price_per_unit: number;
+  attributes?: Record<string, unknown>;
+};
+
 export default function BuyerDashboardClient() {
-  const [listings, setListings] = useState([]);
+  const [listings, setListings] = useState<DashboardListing[]>([]);
   const [filters, setFilters] = useState({
     commodity: "all",
     location: "all",
@@ -14,7 +47,7 @@ export default function BuyerDashboardClient() {
     minPrice: "",
     maxPrice: ""
   });
-  const [selectedListing, setSelectedListing] = useState(null);
+  const [selectedListing, setSelectedListing] = useState<DashboardListing | null>(null);
   const [bidAmount, setBidAmount] = useState("");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -23,11 +56,6 @@ export default function BuyerDashboardClient() {
     yourBids: 12,
     completedDeals: 48
   });
-
-  useEffect(() => {
-    fetchListings();
-    fetchAnalytics();
-  }, [filters]);
 
   const fetchAnalytics = async () => {
     try {
@@ -75,7 +103,7 @@ export default function BuyerDashboardClient() {
       const data = await res.json();
 
       // Transform API response to match our UI structure
-      const transformedListings = data.map((listing: any) => ({
+      const transformedListings = data.map((listing: ListingApi) => ({
         id: listing.id,
         commodity: listing.commodity_name,
         quantity: listing.quantity,
@@ -89,7 +117,7 @@ export default function BuyerDashboardClient() {
         marketPrice: listing.asking_price_per_unit * 1.2, // 20% market markup
         photoUrl: "/api/placeholder/300/200",
         listedAt: "Recently",
-        attributes: listing.attributes || {}
+        attributes: Object.fromEntries(Object.entries(listing.attributes || {}).map(([key, value]) => [key, String(value)]))
       }));
 
       setListings(transformedListings);
@@ -119,6 +147,14 @@ export default function BuyerDashboardClient() {
       setLoading(false);
     }
   };
+
+  // Network synchronization is intentionally triggered when filters change.
+  useEffect(() => {
+    fetchListings();
+    fetchAnalytics();
+    // The functions intentionally run when filter values change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   const placeBid = async () => {
     if (!selectedListing || !bidAmount) return;
@@ -151,11 +187,11 @@ export default function BuyerDashboardClient() {
       }
     } catch (error) {
       console.error("Error placing bid:", error);
-      alert(`Failed to place bid: ${error.message}`);
+      alert(`Failed to place bid: ${error instanceof Error ? error.message : "Unexpected error"}`);
     }
   };
 
-  const getGradeColor = (grade) => {
+  const getGradeColor = (grade: string) => {
     switch(grade) {
       case "A": return "bg-green-500";
       case "B": return "bg-yellow-500";

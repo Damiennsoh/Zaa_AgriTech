@@ -16,7 +16,7 @@ from services.bid_service import place_bid, get_bids_for_listing, accept_bid, ge
 from services.payment_service import request_payment, confirm_delivery
 from services.group_service import find_or_create_group, check_group_readiness
 from services.market_data import get_current_prices, get_price_history, get_price_trend
-from database import get_pool
+from database import request
 
 router = APIRouter()
 
@@ -265,22 +265,16 @@ async def accept_bid_endpoint(bid_id: str, seller_id: str):
         if not result.get("success"):
             raise HTTPException(status_code=400, detail=result.get("error", "Accept failed"))
 
-        # Initiate escrow payment request
-        from services.database import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            tx = await conn.fetchrow(
-                "SELECT * FROM transactions WHERE bid_id = $1", bid_id
-            )
-            buyer = await conn.fetchrow(
-                "SELECT phone_number FROM users WHERE id = $1", result.get("buyer_id")
-            )
+        # Initiate escrow payment request using Supabase Data API
+        tx_rows = await request("GET", "transactions", params={"select": "*", "bid_id": f"eq.{bid_id}", "limit": "1"}) or []
+        buyer_rows = await request("GET", "users", params={"select": "phone_number", "id": f"eq.{result.get('buyer_id')}", "limit": "1"}) or []
 
-        if tx and buyer:
+        if tx_rows and buyer_rows:
+            tx = tx_rows[0]
             payment_result = await request_payment(
                 transaction_id=tx["id"],
-                buyer_phone=buyer["phone_number"],
-                amount=tx["deposit_amount"] or (tx["total_value"] * 0.5)
+                buyer_phone=buyer_rows[0]["phone_number"],
+                amount=tx.get("deposit_amount") or (float(tx["total_value"]) * 0.5)
             )
             result["payment_initiated"] = payment_result.get("success", False)
 
@@ -344,10 +338,8 @@ async def create_group(group: GroupCreate):
     Create or join a selling group.
     Called when farmer sends "Group selling for shea" via WhatsApp.
     """
-    from services.database import get_pool
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        user = await conn.fetchrow("SELECT * FROM users WHERE id = $1", group.user_id)
+    users = await request("GET", "users", params={"select": "*", "id": f"eq.{group.user_id}", "limit": "1"}) or []
+    user = users[0] if users else None
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -386,29 +378,14 @@ async def dashboard_analytics():
     Returns: total listings, verified sellers, active transactions, etc.
     """
     try:
-        from services.database import get_pool
-        pool = await get_pool()
-
-        async with pool.acquire() as conn:
-            total_listings = await conn.fetchval("SELECT COUNT(*) FROM listings WHERE status = 'active'")
-            verified_sellers = await conn.fetchval("SELECT COUNT(*) FROM users WHERE user_type = 'farmer' AND verification_status = 'verified'")
-            active_transactions = await conn.fetchval("SELECT COUNT(*) FROM transactions WHERE status NOT IN ('completed', 'cancelled', 'refunded')")
-            completed_transactions = await conn.fetchval("SELECT COUNT(*) FROM transactions WHERE status = 'completed'")
-            total_volume = await conn.fetchval("SELECT COALESCE(SUM(total_value), 0) FROM transactions WHERE status = 'completed'")
-
-            # Recent activity
-            recent_listings = await conn.fetch(
-                """
-                SELECT l.id, c.name_en as commodity, l.quantity, l.unit, l.status, l.created_at,
-                       u.display_name as seller_name, u.location_district
-                FROM listings l
-                JOIN commodities c ON l.commodity_id = c.id
-                JOIN users u ON l.seller_id = u.id
-                WHERE l.status = 'active'
-                ORDER BY l.created_at DESC
-                LIMIT 5
-                """
-            )
+        listings = await request("GET", "listings", params={"select": "id,quantity,unit,status,created_at,commodities(name_en),users!seller_id(display_name,location_district)", "status": "eq.active", "order": "created_at.desc", "limit": "5"}) or []
+        all_listings = await request("GET", "listings", params={"select": "id", "status": "eq.active"}) or []
+        verified = await request("GET", "users", params={"select": "id", "user_type": "eq.farmer", "verification_status": "eq.verified"}) or []
+        active_tx = await request("GET", "transactions", params={"select": "id", "status": "not.in.(completed,cancelled,refunded)"}) or []
+        completed_tx = await request("GET", "transactions", params={"select": "id,total_value", "status": "eq.completed"}) or []
+        total_volume = sum(float(row.get("total_value") or 0) for row in completed_tx)
+        recent_listings = [{"id": row["id"], "commodity": (row.get("commodities") or {}).get("name_en"), "quantity": row["quantity"], "unit": row["unit"], "status": row["status"], "created_at": row["created_at"], "seller_name": (row.get("users") or {}).get("display_name"), "location_district": (row.get("users") or {}).get("location_district")} for row in listings]
+        total_listings, verified_sellers, active_transactions, completed_transactions = len(all_listings), len(verified), len(active_tx), len(completed_tx)
 
         return {
             "stats": {
@@ -448,20 +425,12 @@ async def dashboard_analytics():
 async def commodity_distribution():
     """Pie chart data: how many listings per commodity"""
     try:
-        from services.database import get_pool
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT c.name_en as commodity, COUNT(*) as count
-                FROM listings l
-                JOIN commodities c ON l.commodity_id = c.id
-                WHERE l.status = 'active'
-                GROUP BY c.name_en
-                ORDER BY count DESC
-                """
-            )
-        return [dict(r) for r in rows]
+        rows = await request("GET", "listings", params={"select": "commodity_id,commodities(name_en)", "status": "eq.active"}) or []
+        counts = {}
+        for row in rows:
+            name = (row.get("commodities") or {}).get("name_en") or "Unknown"
+            counts[name] = counts.get(name, 0) + 1
+        return [{"commodity": name, "count": count} for name, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)]
     except Exception as e:
         # Return mock data for development
         return [
