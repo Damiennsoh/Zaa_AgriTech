@@ -127,8 +127,38 @@ Analyze this message and respond with JSON."""
             "response_hint": "Ask for clarification"
         }
 
+AI_GATEWAY_API_KEY = os.getenv("AI_GATEWAY_API_KEY", "")
+
 async def call_groq_api(prompt: str) -> str:
-    """Call Groq API for fast LLM inference"""
+    """Call LLM API via Vercel AI Gateway or Groq for fast LLM inference"""
+    if AI_GATEWAY_API_KEY:
+        url = "https://ai-gateway.vercel.sh/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {AI_GATEWAY_API_KEY}",
+            "x-api-key": AI_GATEWAY_API_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "google/gemini-1.5-flash",
+            "messages": [
+                {"role": "system", "content": ZAA_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 500,
+            "response_format": {"type": "json_object"}
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=payload) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data["choices"][0]["message"]["content"]
+                    else:
+                        logger.warning(f"Vercel AI Gateway returned status {resp.status}, trying Groq API")
+        except Exception as e:
+            logger.warning(f"Vercel AI Gateway call error: {e}")
+
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -141,7 +171,7 @@ async def call_groq_api(prompt: str) -> str:
             {"role": "system", "content": ZAA_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.3,  # Low temperature for consistent JSON
+        "temperature": 0.3,
         "max_tokens": 500,
         "response_format": {"type": "json_object"}
     }
@@ -154,6 +184,7 @@ async def call_groq_api(prompt: str) -> str:
 
             data = await resp.json()
             return data["choices"][0]["message"]["content"]
+
 
 def normalize_commodity(name: str) -> str:
     """Normalize commodity names across languages"""
