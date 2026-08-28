@@ -6,8 +6,15 @@ from urllib.parse import quote
 import httpx
 
 logger = logging.getLogger(__name__)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+_raw_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_URL = _raw_url[:-8].rstrip("/") if _raw_url.endswith("/rest/v1") else _raw_url
+SUPABASE_KEY = (
+    os.getenv("SUPABASE_SECRET_KEY")
+    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or os.getenv("SUPABASE_ANON_KEY")
+    or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
+)
+
 
 
 def _headers(prefer: str = "return=representation") -> Dict[str, str]:
