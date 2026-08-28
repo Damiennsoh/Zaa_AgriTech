@@ -102,6 +102,32 @@ class GroupResponse(BaseModel):
 # LISTINGS ENDPOINTS
 # ============================================================
 
+def format_listing_response(item: dict) -> dict:
+    commodities = item.get("commodities")
+    commodity_name = commodities.get("name_en") if isinstance(commodities, dict) else (item.get("commodity_name") or "Agricultural Produce")
+    users = item.get("users")
+    seller_name = users.get("display_name") if isinstance(users, dict) else (item.get("seller_name") or "Verified Seller")
+    
+    return {
+        "id": str(item.get("id")),
+        "commodity": (commodity_name or "produce").lower().replace(" ", "_"),
+        "commodity_name": commodity_name or "Agricultural Produce",
+        "quantity": float(item.get("quantity") or 0.0),
+        "unit": item.get("unit") or "kg",
+        "quality_grade": item.get("quality_grade") or "A",
+        "ai_confidence": float(item.get("ai_confidence")) if item.get("ai_confidence") is not None else 0.90,
+        "asking_price_per_unit": float(item.get("asking_price_per_unit")) if item.get("asking_price_per_unit") is not None else 10.0,
+        "location_district": item.get("location_district") or "Northern Region",
+        "location_village": item.get("location_village") or "Tamale",
+        "seller_name": seller_name or "Verified Seller",
+        "seller_rating": float(item.get("seller_rating") or 4.8),
+        "status": item.get("status") or "active",
+        "photos": item.get("photos") if isinstance(item.get("photos"), list) else [],
+        "attributes": item.get("attributes") if isinstance(item.get("attributes"), dict) else {"color": "natural", "quality": "fresh"},
+        "created_at": item.get("created_at") or datetime.now(),
+        "bid_count": int(item.get("bid_count") or 0)
+    }
+
 @router.get("/listings", response_model=List[ListingResponse])
 async def list_listings(
     commodity: Optional[str] = Query(None, description="Filter by commodity name"),
@@ -119,7 +145,7 @@ async def list_listings(
     This is the main endpoint the buyer dashboard calls on load.
     """
     try:
-        listings = await get_all_listings(
+        raw_listings = await get_all_listings(
             commodity=commodity,
             location_district=location_district,
             location_region=location_region,
@@ -130,10 +156,9 @@ async def list_listings(
             limit=limit,
             offset=offset
         )
-        return listings
+        return [format_listing_response(item) for item in raw_listings]
     except Exception as e:
-        # Return mock data for development without database
-        from datetime import datetime
+        logger.error(f"Error fetching listings: {e}")
         return [
             ListingResponse(
                 id="demo-1",
@@ -155,6 +180,7 @@ async def list_listings(
                 bid_count=3
             )
         ]
+
 
 @router.get("/listings/{listing_id}", response_model=ListingResponse)
 async def get_listing_detail(listing_id: str):
