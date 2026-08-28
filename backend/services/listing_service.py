@@ -5,7 +5,8 @@ from datetime import date, timedelta
 from database import request
 
 async def create_listing(seller_id: str, commodity_name: str, quantity: float, unit: str = "kg", asking_price: Optional[float] = None, location_district: Optional[str] = None, location_village: Optional[str] = None, description: Optional[str] = None) -> Dict[str, Any]:
-    matches = await request("GET", "commodities", params={"select": "id,name_en,name_dag", "or": f"name_en.ilike.*{commodity_name}*,name_dag.ilike.*{commodity_name}*", "limit": "1"}) or []
+    matches = await request("GET", "commodities", params={"select": "id,name_en,name_dag", "or": f"(name_en.ilike.*{commodity_name}*,name_dag.ilike.*{commodity_name}*)", "limit": "1"}) or []
+
     if matches:
         commodity_id = matches[0]["id"]
     else:

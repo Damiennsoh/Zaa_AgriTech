@@ -59,7 +59,7 @@ export default function BuyerDashboardClient() {
 
   const fetchAnalytics = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002/api/v1/marketplace";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1/marketplace";
       console.log("Fetching analytics from:", `${apiUrl}/analytics/overview`);
       const res = await fetch(`${apiUrl}/analytics/overview`);
       console.log("Analytics response status:", res.status);
@@ -91,7 +91,7 @@ export default function BuyerDashboardClient() {
       if (filters.minPrice) params.append("min_price", filters.minPrice);
       if (filters.maxPrice) params.append("max_price", filters.maxPrice);
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002/api/v1/marketplace";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1/marketplace";
       console.log("Fetching listings from:", `${apiUrl}/listings?${params.toString()}`);
       const res = await fetch(`${apiUrl}/listings?${params.toString()}`);
       console.log("Response status:", res.status);
@@ -160,7 +160,7 @@ export default function BuyerDashboardClient() {
     if (!selectedListing || !bidAmount) return;
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002/api/v1/marketplace";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1/marketplace";
       const res = await fetch(`${apiUrl}/bids`, {
         method: "POST",
         headers: {
