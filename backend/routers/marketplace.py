@@ -7,6 +7,9 @@ from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 from services.listing_service import (
     get_all_listings, get_listing_by_id, create_listing, 
@@ -40,18 +43,22 @@ class ListingResponse(BaseModel):
     commodity_name: str
     quantity: float
     unit: str
-    quality_grade: Optional[str]
-    ai_confidence: Optional[float]
-    asking_price_per_unit: Optional[float]
-    location_district: Optional[str]
-    location_village: Optional[str]
-    seller_name: Optional[str]
-    seller_rating: Optional[float]
-    status: str
-    photos: Optional[list]
-    attributes: Optional[dict]
-    created_at: datetime
-    bid_count: int
+    quality_grade: Optional[str] = None
+    ai_confidence: Optional[float] = None
+    asking_price_per_unit: Optional[float] = None
+    location_district: Optional[str] = None
+    location_village: Optional[str] = None
+    seller_name: Optional[str] = None
+    seller_rating: Optional[float] = None
+    status: str = "active"
+    photos: Optional[list] = None
+    attributes: Optional[dict] = None
+    bid_count: Optional[int] = 0
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 
 class BidCreate(BaseModel):
     buyer_id: str
@@ -128,7 +135,7 @@ def format_listing_response(item: dict) -> dict:
         "bid_count": int(item.get("bid_count") or 0)
     }
 
-@router.get("/listings", response_model=List[ListingResponse])
+@router.get("/listings")
 async def list_listings(
     commodity: Optional[str] = Query(None, description="Filter by commodity name"),
     location_district: Optional[str] = Query(None, description="Filter by district"),
@@ -182,7 +189,7 @@ async def list_listings(
         ]
 
 
-@router.get("/listings/{listing_id}", response_model=ListingResponse)
+@router.get("/listings/{listing_id}")
 async def get_listing_detail(listing_id: str):
     """Get detailed information about a single listing"""
     listing = await get_listing_by_id(listing_id)
